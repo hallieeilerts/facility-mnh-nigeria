@@ -15,6 +15,14 @@ knit: (function(input, ...) { source(here::here("src", "monitoring", "helper-fun
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
 
+# File description: 
+# Runs data queries, builds a summary table of query counts, and exports an Excel file listing the flagged observations
+# Excel file: each row includes observation KEY, the question the query relates to, and a brief description of the error
+
+# Instructions:
+# See make.r for how to execute code in correct order
+# Before running this file, pull new data from API (./src/set-up/pull-data.R)
+
 rm(list = ls())
 
 library(dplyr)
@@ -40,9 +48,7 @@ source(here("src", "monitoring", "helper-functions.R"))
 dat <- readRDS(here("data", "facilityMNCH-toolA.rds"))
 dat <- dat %>%
   mutate(across(everything(), as.character))
-
 ```
-
 
 ```{css, echo=FALSE}
 /* tighten row height across all tables in this document */
@@ -61,7 +67,6 @@ table td, table th {
   display: block;
 }
 ```
-
 
 # Variable checks
 

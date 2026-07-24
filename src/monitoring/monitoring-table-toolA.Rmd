@@ -13,6 +13,9 @@ knit: (function(input, ...) { source(here::here("src", "monitoring", "helper-fun
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
 
+# File description: Generates Word tables listing the flagged observations for each data query
+# Word file: each row includes observation KEY, the question the query relates to, a brief description of the error, and a space for the data manager to respond to the query
+
 library(here)
 library(tidyr)
 library(dplyr)
