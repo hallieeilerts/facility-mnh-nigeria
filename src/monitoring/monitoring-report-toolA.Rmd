@@ -1,0 +1,355 @@
+---
+title: "Facility MNH Monitoring"
+subtitle: "Tool A"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    theme: flatly
+    toc: true
+    toc_float: true
+editor_options: 
+  chunk_output_type: console
+knit: (function(input, ...) { source(here::here("src", "monitoring", "helper-functions.R")); fn_render_dated_report(input) })
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+rm(list = ls())
+
+library(dplyr)
+library(knitr)
+library(tibble)
+library(haven)
+library(kableExtra)
+library(ggplot2)
+library(lubridate)
+library(ggrepel)
+library(openxlsx)
+library(here)
+library(readr)
+library(stringr)
+library(purrr)
+library(glue)
+library(httr2)
+
+# load helper functions
+source(here("src", "monitoring", "helper-functions.R"))
+
+# load data
+dat <- readRDS(here("data", "facilityMNCH-toolA.rds"))
+dat <- dat %>%
+  mutate(across(everything(), as.character))
+
+```
+
+
+```{css, echo=FALSE}
+/* tighten row height across all tables in this document */
+table td, table th {
+  padding-top: 2px !important;
+  padding-bottom: 2px !important;
+  line-height: 1.1;
+}
+
+/* caption spans the full page width, independent of table width */
+.table-caption {
+  width: 100%;
+  font-weight: bold;
+  margin-top: 1.2em;
+  margin-bottom: 0.4em;
+  display: block;
+}
+```
+
+
+# Variable checks
+
+## Section 1
+
+*Data reporting processes*
+
+```{r section1, results='asis'}
+## ---- Step 1: define each condition as its own line -----------------------
+## Each line below is one TRUE/FALSE condition per record.
+## TRUE = this record has that specific inconsistency.
+
+cond_q105  <- dat$q105 == "1" & as.numeric(dat$q105a) == 0
+cond_neg_q105a <- as.numeric(dat$q105a) < 0
+cond_q118  <- dat$q118 == "1" & as.numeric(dat$q119b) == 0
+cond_neg_q119b <- as.numeric(dat$q119b) < 0
+cond_q129  <- dat$q129 == "1" & as.numeric(dat$q131) == 0
+cond_neg_q131  <- as.numeric(dat$q131) < 0
+
+cond_q108_1a <- dat$q106_3 == "0" & dat$q108_1 %in% c("1","2","3","96")
+cond_q108_1b <- dat$q106_3 == "1" & dat$q108_1 == "98"
+
+cond_q108_2a <- dat$q106_4 == "0" & dat$q108_2 %in% c("1","2","3","96")
+cond_q108_2b <- dat$q106_4 == "1" & dat$q108_2 == "98"
+
+cond_q108_3a <- dat$q106_5 == "0" & dat$q108_3 %in% c("1","2","3","96")
+cond_q108_3b <- dat$q106_5 == "1" & dat$q108_3 == "98"
+
+cond_q107 <- (dat$q106_3 == "1" | dat$q106_4 == "1" | dat$q106_5 == "1") &
+             (dat$q107_1 == "0" & dat$q107_2 == "0" & dat$q107_3 == "0" &
+              dat$q107_4 == "0" & dat$q107_5 == "0")
+
+cond_q110 <- (dat$q106_1 == "0" & dat$q106_2 == "0" & dat$q106_3 == "0" &
+               dat$q106_4 == "0" & dat$q106_5 == "0") & dat$q110 == "1"
+
+cond_q111 <- dat$q106_3 == "0" & !is.na(dat$q111) & dat$q111 != ""
+
+cond_q112 <- dat$q106_4 == "0" & dat$q106_5 == "0" & !is.na(dat$q112) & dat$q112 != ""
+
+cond_q113 <- dat$q106_1 == "0" & !is.na(dat$q113) & dat$q113 != ""
+
+q119b_num <- as.numeric(dat$q119b)
+cond_q119b_q120 <- !is.na(q119b_num) & q119b_num == 0 & dat$q120 %in% c("1","2","3","4", "5", "6")
+
+cond_q124    <- dat$q123 == "1" & (is.na(dat$q124) | dat$q124 == "")
+
+cond_q138 <- dat$q135 == "0" & dat$q138 %in% c("1","2","3","4","5")
+cond_q139 <- dat$q135 == "0" & dat$q139 %in% c("1","2","3","4","5","6")
+cond_q140 <- dat$q135 == "0" & dat$q140 %in% c("1","2","3","4","5","6")
+cond_q141 <- dat$q135 == "0" & dat$q141 %in% c("1","2","3","4","5","6")
+cond_q142 <- dat$q135 == "0" & dat$q142 %in% c("1","2","3","4","5","6")
+cond_q143 <- dat$q135 == "0" & dat$q143 %in% c("1","2","3","4","5","6")
+cond_q144 <- dat$q135 == "0" & dat$q144 %in% c("1","2","3","4","5","6")
+
+## ---- Step 2: metadata for each condition (question, label, issue text) ---
+check_defs <- tribble(
+  ~cond_name,       ~question,          ~label,                                 ~issue,
+  "cond_q105",      "q105 / q105a",     "M&E validation visits",                "Q105 = 'Yes, validations conducted' but Q105a (count) = 0",
+  "cond_neg_q105a", "q105a",            "M&E validation visits (count)",        "Q105a has a negative value",
+  "cond_q118",      "q118 / q119b",     "Facilities reporting to this site",    "Q118 = 'Yes, other facilities report' but Q119b (count) = 0",
+  "cond_neg_q119b", "q119b",            "Facilities reporting (count)",         "Q119b has a negative value",
+  "cond_q129",      "q129 / q131",      "CHWs reporting to this site",          "Q129 = 'Yes, CHWs report' but Q131 (count) = 0",
+  "cond_neg_q131",  "q131",             "CHWs reporting (count)",               "Q131 has a negative value",
+  "cond_q108_1a",   "q106_3 / q108_1",  "Maternal death DHIS-2 deadline",       "Maternal deaths not recorded in DHIS-2 (Q106_3=No) but Q108_1 has a real deadline code",
+  "cond_q108_1b",   "q106_3 / q108_1",  "Maternal death DHIS-2 deadline",       "Maternal deaths ARE recorded in DHIS-2 (Q106_3=Yes) but Q108_1 is coded 'Not applicable'",
+  "cond_q108_2a",   "q106_4 / q108_2",  "Stillbirth DHIS-2 deadline",           "Stillbirths not recorded in DHIS-2 (Q106_4=No) but Q108_2 has a real deadline code",
+  "cond_q108_2b",   "q106_4 / q108_2",  "Stillbirth DHIS-2 deadline",           "Stillbirths ARE recorded in DHIS-2 (Q106_4=Yes) but Q108_2 is coded 'Not applicable'",
+  "cond_q108_3a",   "q106_5 / q108_3",  "Neonatal death DHIS-2 deadline",       "Neonatal deaths not recorded in DHIS-2 (Q106_5=No) but Q108_3 has a real deadline code",
+  "cond_q108_3b",   "q106_5 / q108_3",  "Neonatal death DHIS-2 deadline",       "Neonatal deaths ARE recorded in DHIS-2 (Q106_5=Yes) but Q108_3 is coded 'Not applicable'",
+  "cond_q107",      "q106 / q107",      "Death identification source",          "A death type is recorded in DHIS-2 but no identification source is selected in Q107",
+  "cond_q110",      "q106 / q110",      "Designated data compiler",             "No events recorded in DHIS-2 at all, but Q110 says a designated compiler exists",
+  "cond_q111",      "q106_3 / q111",    "Maternal death compiler",              "Maternal deaths not recorded in DHIS-2 but Q111 (who compiles them) is not blank",
+  "cond_q112",      "q106_4-5 / q112",  "Stillbirth/neonatal death compiler",   "Neither stillbirths nor neonatal deaths recorded in DHIS-2 but Q112 (who compiles them) is not blank",
+  "cond_q113",      "q106_1 / q113",    "Pregnancy compiler",                   "Pregnancies not recorded in DHIS-2 but Q113 (who compiles them) is not blank",
+  "cond_q119b_q120","q119b / q120",     "Reporting facility count vs frequency","Q119b (number of facilities) = 0 but Q120 (reporting frequency) still has a value",
+  "cond_q124",      "q123 / q124",      "Submission deadline",                  "Q123 = 'Yes, there is a deadline' but Q124 (when the deadline is) is blank",
+  "cond_q138",      "q135 / q138",      "Reporting destination",                "Q135 = 'does not report upward' but a destination is recorded in Q138",
+  "cond_q139",      "q135 / q139",      "LGA reporting frequency",              "Q135 = 'does not report upward' but Q139 (LGA reporting frequency) still has a value",
+  "cond_q140",      "q135 / q140",      "State reporting frequency",            "Q135 = 'does not report upward' but Q140 (State reporting frequency) still has a value",
+  "cond_q141",      "q135 / q141",      "National reporting frequency",         "Q135 = 'does not report upward' but Q141 (National reporting frequency) still has a value",
+  "cond_q142",      "q135 / q142",      "MoH dept. reporting frequency",        "Q135 = 'does not report upward' but Q142 still has a value",
+  "cond_q143",      "q135 / q143",      "NGO/institution reporting frequency",  "Q135 = 'does not report upward' but Q143 still has a value",
+  "cond_q144",      "q135 / q144",      "Other destination reporting frequency","Q135 = 'does not report upward' but Q144 still has a value"
+)
+
+conditions <- list(
+  cond_q105 = cond_q105, cond_q118 = cond_q118, cond_q129 = cond_q129,
+  cond_neg_q105a = cond_neg_q105a, cond_neg_q119b = cond_neg_q119b, cond_neg_q131 =   cond_neg_q131,
+  cond_q108_1a = cond_q108_1a, cond_q108_1b = cond_q108_1b,
+  cond_q108_2a = cond_q108_2a, cond_q108_2b = cond_q108_2b,
+  cond_q108_3a = cond_q108_3a, cond_q108_3b = cond_q108_3b,
+  cond_q107 = cond_q107, cond_q110 = cond_q110,
+  cond_q111 = cond_q111, cond_q112 = cond_q112, cond_q113 = cond_q113,
+  cond_q119b_q120 = cond_q119b_q120, cond_q124 = cond_q124, cond_q138 = cond_q138,
+  cond_q139 = cond_q139, cond_q140 = cond_q140, cond_q141 = cond_q141,
+  cond_q142 = cond_q142, cond_q143 = cond_q143, cond_q144 = cond_q144
+)
+
+## ---- Step 3: turn each TRUE condition into table rows ---------------------
+section1_results <- check_defs %>%
+  pmap_dfr(function(cond_name, question, label, issue) {
+    flagged <- which(conditions[[cond_name]])
+    if (length(flagged) == 0) return(NULL)
+    tibble(
+      KEY = dat$KEY[flagged],
+      g03 = dat$g03[flagged],
+      question       = question,
+      label          = label,
+      issue          = issue
+    )
+  })
+
+# summary table
+section1_results %>%
+  select(question, label, issue) %>%
+  group_by(question, label, issue) %>%
+  summarise(n = n()) %>%
+  compact_kable(caption = "Query summary table for section 1 ")
+
+```
+
+## Section 2
+
+*Indicator availability*
+
+```{r section2-indicator-availability, results='asis'}
+## ---- Step 1: build the list of indicator variable names -----------------
+gen_suffixes <- function(n) {
+  base <- letters
+  if (n <= 26) return(base[seq_len(n)])
+  extra <- paste0(letters[seq_len(n - 26)], letters[seq_len(n - 26)])
+  c(base, extra)
+}
+
+s2_blocks <- tribble(
+  ~stem,  ~n_items,
+  "q201", 9,
+  "q202", 5,
+  "q203", 20,
+  "q204", 15,
+  "q205", 31,
+  "q206", 5,
+  "q207", 32,
+  "q208", 5,
+  "q209", 4,
+  "q210", 8,
+  "q211", 4
+)
+
+indicator_vars <- s2_blocks %>%
+  pmap(function(stem, n_items) paste0(stem, gen_suffixes(n_items))) %>%
+  unlist()
+
+## ---- Step 2: for each indicator/source pair, check multiple issue types --
+section2_results <- map_dfr(indicator_vars, function(v) {
+  sv <- paste0(v, "_source")
+  if (!all(c(v, sv) %in% names(dat))) return(NULL)
+
+  ind_val <- dat[[v]]
+  src_val <- dat[[sv]]
+
+  ## Indicator = No, but a source is still selected
+  flagged <- which(ind_val == "0" & !is.na(src_val) & src_val != "")
+  if (length(flagged) == 0) return(NULL)
+
+  tibble(
+    KEY   = dat$KEY[flagged],
+    g03 = dat$g03[flagged],
+    question       = paste0(v, " / ", sv),
+    label          = "Indicator vs. data source",
+    issue          = glue("{v} = 'No' but a data source is selected in {sv}")
+  )
+})
+
+## ---- Documentation hierarchy: can't document WHEN something happened -----
+## without documenting THAT it happened at all
+hierarchy_pairs <- tribble(
+  ~base_var, ~timing_var, ~label,
+  "q207b", "q207c", "Skin-to-skin contact",
+  "q207d", "q207e", "Breastfeeding",
+  "q207f", "q207g", "Vitamin K prophylaxis",
+  "q207h", "q207i", "Eye care",
+  "q207j", "q207k", "Chlorhexidine application"
+)
+
+hierarchy_results <- hierarchy_pairs %>%
+  pmap_dfr(function(base_var, timing_var, label) {
+    flagged <- which(dat[[base_var]] == "0" & dat[[timing_var]] == "1")
+    if (length(flagged) == 0) return(NULL)
+    tibble(
+      KEY   = dat$KEY[flagged],
+      g03 = dat$g03[flagged],
+      question       = paste0(base_var, " / ", timing_var),
+      label          = paste0(label, " timing"),
+      issue          = glue("{base_var} = 'No' (not documented at all) but {timing_var} = 'Yes' (timing within 1st hour is documented)")
+    )
+  })
+
+section2_results <- bind_rows(section2_results, hierarchy_results)
+
+# summary table
+section2_results %>%
+  select(question, label, issue) %>%
+  group_by(question, label, issue) %>%
+  summarise(n = n()) %>%
+  compact_kable(caption = "Query summary table for section 2")
+```
+
+## Section 3
+
+*Indicator completeness*
+
+```{r section3-completeness-checks, results='asis'}
+## Check 1: photo AND reason both present (contradiction)
+register_pairs <- tribble(
+  ~photo_var, ~reason_var, ~label,
+  "q301", "q301_reason", "Antenatal care (ANC) register",
+  "q302", "q302_reason", "Labor and delivery ward register",
+  "q303", "q303_reason", "Postnatal ward register",
+  "q304", "q304_reason", "Newborn unit register",
+  "q305", "q305_reason", "Operating theater register",
+  "q306", "q306_reason", "Postabortion care (PAC) register",
+  "q307", "q307_reason", "PMTCT register",
+  "q308", "q308_reason", "Discharge register",
+  "q309", "q309_reason", "Referral register",
+  "q310", "q310_reason", "Death register"
+)
+
+photo_reason_conflict <- register_pairs %>%
+  pmap_dfr(function(photo_var, reason_var, label) {
+    flagged <- which(!is.na(dat[[photo_var]]) & dat[[photo_var]] != "" &
+                      !is.na(dat[[reason_var]]) & dat[[reason_var]] != "")
+    if (length(flagged) == 0) return(NULL)
+    tibble(
+      KEY = dat$KEY[flagged], 
+      g03 = dat$g03[flagged],
+      question = paste0(photo_var, " / ", reason_var), label = label,
+      issue = glue("Both a photo ({photo_var}) and a 'reason not uploaded' ({reason_var}) are present — should be mutually exclusive")
+    )
+  })
+
+## Check 2: GPS plausibility
+lat <- as.numeric(dat$`gps-Latitude`)
+lon <- as.numeric(dat$`gps-Longitude`)
+flagged_gps <- which(!is.na(lat) & !is.na(lon) & !(lat >= 9.0 & lat <= 13.0 & lon >= 7.0 & lon <= 12.0))
+
+gps_results <- tibble(
+  KEY = dat$KEY[flagged_gps], 
+  g03 = dat$g03[flagged_gps],
+  question = "gps-Latitude / gps-Longitude", label = "GPS location",
+  issue = "GPS coordinates fall outside the expected Kano/Gombe bounding box"
+)
+
+section3_results <- bind_rows(photo_reason_conflict, gps_results)
+
+# summary table
+section3_results %>%
+  select(question, label, issue) %>%
+  group_by(question, label, issue) %>%
+  summarise(n = n()) %>%
+  compact_kable(caption = "Query summary table for section 3")
+
+```
+
+```{r export_excel}
+var_key <- tibble::tribble(
+  ~variable,      ~description,
+  "key",       "KEY to identify observation",
+  "interviewer_id",  "Variable g03",
+  "question",   "question number in tool",
+  "label",    "question label",
+  "issue",       "description of issue"
+)
+
+wb <- createWorkbook()
+addWorksheet(wb, "section1")
+writeData(wb, "section1", section1_results)
+
+addWorksheet(wb, "section2")
+writeData(wb, "section2", section2_results)
+
+addWorksheet(wb, "section3")
+writeData(wb, "section3", section3_results)
+
+addWorksheet(wb, "variable-key")
+writeData(wb, "variable-key", var_key)
+setColWidths(wb, "variable-key", cols = 1:2, widths = c(18, 100))
+
+fn_save_dated_workbook(wb, "data-queries-toolA")
+
+```

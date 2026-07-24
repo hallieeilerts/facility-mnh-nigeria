@@ -1,0 +1,72 @@
+---
+title: "Facility MNH Queries"
+subtitle: "Tool A"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  officedown::rdocx_document:
+    reference_docx: "./style-reference.docx"
+editor_options: 
+  chunk_output_type: console
+knit: (function(input, ...) { source(here::here("src", "monitoring", "helper-functions.R")); fn_render_dated_word(input) })
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+library(here)
+library(tidyr)
+library(dplyr)
+library(officedown)
+library(officer)
+library(flextable)
+library(openxlsx)
+
+# load helper functions
+source(here("src", "monitoring", "helper-functions.R"))
+
+# identify latest data queries excel file
+v_files <- list.files(here("gen", "monitoring", "tables"))
+v_files <- v_files[grepl("data-queries-toolA", v_files)]
+latest_file <- tail(sort(v_files), 1)
+
+# load sheets separately from excel file
+dat_sec1 <- openxlsx::read.xlsx(here("gen", "monitoring", "tables", latest_file), sheet = "section1")
+dat_sec2 <- openxlsx::read.xlsx(here("gen", "monitoring", "tables", latest_file), sheet = "section2")
+dat_sec3 <- openxlsx::read.xlsx(here("gen", "monitoring", "tables", latest_file), sheet = "section3")
+
+# define flextable
+fn_make_flextable <- function(dat) {
+  dat %>%
+    mutate(response = "") %>%
+    flextable() %>%
+    width(j = "KEY", width = 2.5) %>% 
+    width(j = "g03", width = 0.5) %>% 
+    width(j = "question", width = 1) %>% 
+    width(j = "label", width = 1) %>% 
+    width(j = "issue", width = 3) %>% 
+    width(j = "response", width = 2) %>% 
+    font(fontname = "Times New Roman", part = "all") %>%
+    fontsize(size = 9, part = "all") %>%
+    padding(padding = 2, part = "all") %>%
+    border_inner_h(border = officer::fp_border(color = "black", width = 1), part = "body") %>%
+    border_inner_v(border = officer::fp_border(color = "black", width = 1), part = "all")
+}
+```
+
+## Section 1
+
+```{r}
+fn_make_flextable(dat_sec1)
+```
+
+## Section 2
+
+```{r}
+fn_make_flextable(dat_sec2)
+```
+
+## Section 3
+
+```{r}
+fn_make_flextable(dat_sec3)
+```
