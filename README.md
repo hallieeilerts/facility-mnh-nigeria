@@ -7,7 +7,7 @@ Data monitoring and analysis for Health Facility MNH Innovations in Nigeria
 `make.R` : calls scripts in correct order to replicate analysis
 
 - `./data`: location of data
-- `./src`: location of code, organized by domain (e.g., `set-up`, `monitoring`, `indicators`)
+- `./src`: location of code, organized by domain (e.g., `set-up`, `monitoring`)
 - `./gen`: location of files generated from code, mirroring the structure of `./src`
 
 ```
@@ -39,6 +39,6 @@ project/
 │ │ │ ├── data-queries-toolB_YYYYMMDD.xlsx
 │ │ │ ├── monitoring-table-toolA_latest.docx
 │ │ │ └── monitoring-table-toolB_latest.docx
-│ └── indicators/
+│ └── analysis/
 │ └── ...
 ```
