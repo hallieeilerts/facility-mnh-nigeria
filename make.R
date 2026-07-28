@@ -24,7 +24,7 @@ source("./src/monitoring/monitoring-table-toolA.Rmd", local = new.env())
 
 source("./src/monitoring/monitoring-report-data-collection.Rmd", local = new.env())
 
-# Data quality indicators -------------------------------------------------
+# Analysis -------------------------------------------------
 
 
 
