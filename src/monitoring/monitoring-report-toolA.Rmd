@@ -153,13 +153,22 @@ check_defs <- tribble(
 )
 
 conditions <- list(
-  cond_q105 = cond_q105, cond_q118 = cond_q118, cond_q129 = cond_q129,
-  cond_neg_q105a = cond_neg_q105a, cond_neg_q119b = cond_neg_q119b, cond_neg_q131 =   cond_neg_q131,
-  cond_q108_1a = cond_q108_1a, cond_q108_1b = cond_q108_1b,
-  cond_q108_2a = cond_q108_2a, cond_q108_2b = cond_q108_2b,
-  cond_q108_3a = cond_q108_3a, cond_q108_3b = cond_q108_3b,
-  cond_q107 = cond_q107, cond_q110 = cond_q110,
-  cond_q111 = cond_q111, cond_q112 = cond_q112, cond_q113 = cond_q113,
+  cond_q105 = cond_q105, 
+  cond_q118 = cond_q118, 
+  cond_q129 = cond_q129,
+  cond_neg_q105a = cond_neg_q105a, 
+  cond_neg_q119b = cond_neg_q119b, 
+  cond_neg_q131 = cond_neg_q131,
+  cond_q108_1a = cond_q108_1a, 
+  cond_q108_1b = cond_q108_1b,
+  cond_q108_2a = cond_q108_2a, 
+  cond_q108_2b = cond_q108_2b,
+  cond_q108_3a = cond_q108_3a, 
+  cond_q108_3b = cond_q108_3b,
+  cond_q107 = cond_q107, 
+  cond_q110 = cond_q110,
+  cond_q111 = cond_q111, 
+  cond_q112 = cond_q112, cond_q113 = cond_q113,
   cond_q119b_q120 = cond_q119b_q120, cond_q124 = cond_q124, cond_q138 = cond_q138,
   cond_q139 = cond_q139, cond_q140 = cond_q140, cond_q141 = cond_q141,
   cond_q142 = cond_q142, cond_q143 = cond_q143, cond_q144 = cond_q144
@@ -203,7 +212,7 @@ gen_suffixes <- function(n) {
 
 s2_blocks <- tribble(
   ~stem,  ~n_items,
-  "q201", 9,
+  "q201", 9, # sub questions
   "q202", 5,
   "q203", 20,
   "q204", 15,
@@ -216,6 +225,7 @@ s2_blocks <- tribble(
   "q211", 4
 )
 
+# adds letter for each subquestion
 indicator_vars <- s2_blocks %>%
   pmap(function(stem, n_items) paste0(stem, gen_suffixes(n_items))) %>%
   unlist()
@@ -245,7 +255,7 @@ section2_results <- map_dfr(indicator_vars, function(v) {
 ## without documenting THAT it happened at all
 hierarchy_pairs <- tribble(
   ~base_var, ~timing_var, ~label,
-  "q207b", "q207c", "Skin-to-skin contact",
+  "q207b", "q207c", "Skin-to-skin contact", # skin to skin , skin to skin within 1st hour
   "q207d", "q207e", "Breastfeeding",
   "q207f", "q207g", "Vitamin K prophylaxis",
   "q207h", "q207i", "Eye care",
