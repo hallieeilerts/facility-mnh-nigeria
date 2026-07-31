@@ -11,6 +11,7 @@ library(here)
 library(kableExtra)
 library(stringr)
 library(purrr)
+library(openxlsx)
 #' Inputs
 toolc_tables <- readRDS("./data/facilityMNCH-toolC.rds")
 dat <- toolc_tables$`hfe-tool-c`
@@ -24,6 +25,8 @@ dat %>%
   compact_kable(col.names = c("State", "LGA", "Ward",
                               "Facility name",
                               "recruit", "consent"))
+
+# Conditions --------------------------------------------------------------
 
 # Maternal death capture
 cond_q13a <- (is.na(dat$q13a) | trimws(dat$q13a) == "")
@@ -408,6 +411,8 @@ cond_q255oth <- !is.na(dat$q255) & grepl("(^|\\s)96(\\s|$)", dat$q255) & (is.na(
 cond_q256 <- (is.na(dat$q256) | trimws(dat$q256) == "")
 cond_q257 <- (is.na(dat$q257) | trimws(dat$q257) == "")
 
+# Condition definitions ---------------------------------------------------
+
 check_defs <- tribble(
   ~cond_name,            ~question,           ~label,                     ~issue,
   # Maternal death capture
@@ -765,7 +770,8 @@ check_defs <- tribble(
 
 conditions <- mget(check_defs$cond_name)
 
-section1_results <- check_defs %>%
+# format individual-level results
+tool_results <- check_defs %>%
   pmap_dfr(function(cond_name, question, label, issue) {
     flagged <- which(conditions[[cond_name]])
     if (length(flagged) == 0) return(NULL)
@@ -778,5 +784,32 @@ section1_results <- check_defs %>%
     )
   })
 
+# summary table
+tool_results %>%
+  select(question, label, issue) %>%
+  group_by(question, label, issue) %>%
+  summarise(n = n()) %>%
+  compact_kable(caption = "Query summary table for section 1 ")
 
 
+# Save excel file ---------------------------------------------------------
+
+# save individual level results as excel file
+var_key <- tibble::tribble(
+  ~variable,      ~description,
+  "key",       "KEY to identify observation",
+  "g03",  "interviewer id",
+  "question",   "question number in tool",
+  "label",    "question label",
+  "issue",       "description of issue"
+)
+
+wb <- createWorkbook()
+addWorksheet(wb, "toolC-main")
+writeData(wb, "toolC-main", tool_results)
+
+addWorksheet(wb, "variable-key")
+writeData(wb, "variable-key", var_key)
+setColWidths(wb, "variable-key", cols = 1:2, widths = c(18, 100))
+
+fn_save_dated_workbook(wb, "data-queries-toolC-main")
