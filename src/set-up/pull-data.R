@@ -22,9 +22,10 @@ saveRDS(dat, "./data/facilityMNCH-toolA.rds")
 
 
 base_url <- Sys.getenv("ODK_URL_ToolC")
-# insert /v1 right after the domain
-zip_url <- sub("(https://[^/]+)(/.*)", "\\1/v1\\2", base_url)
-zip_url <- paste0(sub("\\.zip$", "", zip_url), ".zip")
+# fix form id if the env var is out of date
+base_url <- sub("forms/hfe-tool-c/", "forms/hfe-tool-c-final/", base_url)
+# swap .csv -> .csv.zip
+zip_url <- sub("\\.csv$", ".csv.zip", base_url)
 zip_url
 #zip_url <- paste0(sub("\\.zip$", "", Sys.getenv("ODK_URL_ToolC")), ".zip")
 resp <- request(zip_url) %>%

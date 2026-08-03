@@ -14,7 +14,7 @@ library(purrr)
 library(openxlsx)
 #' Inputs
 toolc_tables <- readRDS("./data/facilityMNCH-toolC.rds")
-dat <- toolc_tables$`hfe-tool-c`
+dat <- toolc_tables$`hfe-tool-c-final`
 source(here("src", "monitoring", "helper-functions.R"))
 ################################################################################
 
