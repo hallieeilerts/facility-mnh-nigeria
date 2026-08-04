@@ -1,7 +1,7 @@
 ################################################################################
 #' @description Clean tool C - MaternPeriDeathRepeat
-#' Review/audit repeat group (MaternPeriDeathRepeat)
-#' Lives in a separate ODK repeat table, joined back to main data via PARENT_KEY
+#' Review/audit repeat group
+#' Lives in a separate ODK repeat table, joined back to main data via KEY
 #' @return 
 ################################################################################
 #' Clear environment
@@ -15,14 +15,13 @@ library(stringr)
 library(purrr)
 #' Inputs
 toolc_tables <- readRDS("./data/facilityMNCH-toolC.rds")
-dat <- toolc_tables$`hfe-tool-c`
-dat_q27 <- toolc_tables$`hfe-tool-c-MaternPeriDeathRepeat`
-source(here("src", "monitoring", "helper-functions.R"))
+dat <- toolc_tables$`hfe-tool-c-final`
+dat_q27 <- toolc_tables$`hfe-tool-c-final-dth_review_repeat`
 ################################################################################
 
 
-dat_outcomes <- toolc_tables$`hfe-tool-c-MaternPeriDeathRepeat` %>%
-  left_join(dat %>% select(KEY, g03), by = c("PARENT_KEY" = "KEY"))
+dat_outcomes <- dat_q27 %>%
+  left_join(dat %>% select(KEY, f03), by = c("PARENT_KEY" = "KEY"))
 
 # Missing monthly counts (every row = a selected outcome, so all 12 months
 cond_m1 <- is.na(dat_outcomes$m1)
@@ -62,7 +61,7 @@ section_outcomes_results <- check_defs_outcomes %>%
     if (length(flagged) == 0) return(NULL)
     tibble(
       KEY = dat_outcomes$KEY[flagged],
-      g03 = dat_outcomes$g03[flagged],
+      f03 = dat_outcomes$f03[flagged],
       get_outcome = dat_outcomes$get_outcome[flagged],
       question    = question,
       label       = label,

@@ -12,19 +12,17 @@ library(httr2)
 #' Inputs
 ################################################################################
 
-csv_resp <- request(Sys.getenv("ODK_URL_ToolA")) %>%
-  req_url_query(groupPaths = "false", splitSelectMultiples = "false") %>%
-  req_auth_basic(Sys.getenv("ODK_USER"), Sys.getenv("ODK_PASSWORD")) %>%
-  req_perform()
-dat <- read_csv(resp_body_string(csv_resp), show_col_types = FALSE)
-write.csv(dat, "./data/facilityMNCH-toolA.csv", row.names = FALSE)
-saveRDS(dat, "./data/facilityMNCH-toolA.rds")
+# csv_resp <- request(Sys.getenv("ODK_URL_ToolA")) %>%
+#   req_url_query(groupPaths = "false", splitSelectMultiples = "false") %>%
+#   req_auth_basic(Sys.getenv("ODK_USER"), Sys.getenv("ODK_PASSWORD")) %>%
+#   req_perform()
+# dat <- read_csv(resp_body_string(csv_resp), show_col_types = FALSE)
+# write.csv(dat, "./data/facilityMNCH-toolA.csv", row.names = FALSE)
+# saveRDS(dat, "./data/facilityMNCH-toolA.rds")
 
 
 base_url <- Sys.getenv("ODK_URL_ToolC")
-# fix form id if the env var is out of date
 base_url <- sub("forms/hfe-tool-c/", "forms/hfe-tool-c-final/", base_url)
-# swap .csv -> .csv.zip
 zip_url <- sub("\\.csv$", ".csv.zip", base_url)
 zip_url
 #zip_url <- paste0(sub("\\.zip$", "", Sys.getenv("ODK_URL_ToolC")), ".zip")

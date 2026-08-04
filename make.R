@@ -24,3 +24,9 @@ source("./src/monitoring/monitoring-report-data-collection.Rmd", local = new.env
 
 
 
+# key off of f03 instead of the KEY
+# real server
+# https://odkc.akenahealth.org
+# Email: mmary1@jhu.edu
+# Password: marypassword
+

@@ -56,7 +56,13 @@ fn_make_flextable <- function(dat) {
 }
 ```
 
-## Tool C - Main
+# Tool C - main
+
+```{r}
+fn_make_flextable(dat)
+```
+
+# Tool C - dth_review_repeat
 
 ```{r}
 fn_make_flextable(dat)
