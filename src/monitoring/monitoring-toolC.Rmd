@@ -1,41 +1,59 @@
-################################################################################
-#' @description Clean tool C
-#' @return 
-################################################################################
-#' Clear environment
-rm(list = ls())
-#' Libraries
+---
+title: "Facility MNH Queries"
+subtitle: "Tool C"
+output:
+  officedown::rdocx_document:
+    reference_docx: "./style-reference.docx"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
 library(dplyr)
 library(tidyr)
+library(readr)
+library(httr2) 
 library(here)
-library(kableExtra)
+library(officedown)
+library(officer)
+library(flextable)
+library(openxlsx)
 library(stringr)
 library(purrr)
-library(openxlsx)
-#' Inputs
-mypath_data <- "./data/"
-mypath_results <- "./gen/monitoring/tables"
-toolc_tables <- readRDS(paste0(mypath_data, "facilityMNCH-toolC.rds"))
-dat <- toolc_tables$`hfe-tool-c-final`
-dat_q27 <- toolc_tables$`hfe-tool-c-final-dth_review_repeat`
-################################################################################
+```
 
-# Spot checks -------------------------------------------------------------
+```{r pull-data, results='asis'}
+# Build the submissions.csv.zip URL and download
+zip_url <- Sys.getenv("ODK_URL_ToolC") %>%
+  sub("forms/hfe-tool-c/", "forms/hfe-tool-c-final/", .) %>%
+  sub("\\.csv$", ".csv.zip", .)
 
-# nrow(dat) # 2
-# length(unique(dat$f03)) # 2
-# 
-# dat %>%
-#   filter(f03 == "47-GSSH-C") %>% View()
-#   select(KEY, f03, q247, q248) %>% View()
-# 
-# dat %>%
-#   filter(f03 == "53-KASH-C") %>%
-#   select(KEY, f03, q13a, q13a1, q13b, q13b1) %>% View()
-# 
-# dat %>%
-#   select(q247, q248) %>% View()
+resp <- request(zip_url) %>%
+  req_url_query(groupPaths = "false", splitSelectMultiples = "false") %>%
+  req_auth_basic(Sys.getenv("ODK_USER"), Sys.getenv("ODK_PASSWORD")) %>%
+  req_perform()
 
+# Record the exact moment the pull completed successfully
+pull_time <- Sys.time()
+
+# Unzip and read every CSV into a named list of tibbles
+exdir <- tempfile(); dir.create(exdir)
+tmp <- tempfile(fileext = ".zip")
+writeBin(resp_body_raw(resp), tmp)
+csv_files <- unzip(tmp, exdir = exdir) %>% grep("\\.csv$", ., ignore.case = TRUE, value = TRUE)
+tables <- setNames(
+  lapply(csv_files, readr::read_csv, show_col_types = FALSE),
+  tools::file_path_sans_ext(basename(csv_files))
+)
+dat <- tables$`hfe-tool-c-final`
+dat_q27 <- tables$`hfe-tool-c-final-dth_review_repeat`
+
+cat("**Data pulled:**", format(pull_time, "%B %d, %Y at %I:%M %p %Z"))
+```
+
+```{r conditions}
 # Intro -------------------------------------------------------------------
 
 cond_level1 <- (is.na(dat$level1) | trimws(dat$level1) == "")
@@ -1137,7 +1155,7 @@ if (nrow(section_q27_results) > 0) {
       KEY      = PARENT_KEY,
       f03      = f03,
       question = "q27",
-      label    = paste0("Death review repeat file (", get_death1, ")"),
+      label    = paste0("Death review repeat (", get_death1, ")"),
       issue    = paste0(issue)
     )
   
@@ -1163,26 +1181,29 @@ if (nrow(tool_results) == 0) {
     issue    = "All checks passed -- no flags raised"
   )
 }
+```
 
-# Save excel file ---------------------------------------------------------
+```{r create-table}
+# define flextable
+fn_make_flextable <- function(dat) {
+  dat %>%
+    select(-KEY) %>%
+    arrange(f03, question) %>%
+    mutate(response = "") %>%
+    flextable() %>%
+    width(j = "f03", width = 1) %>% 
+    width(j = "question", width = 1) %>% 
+    width(j = "label", width = 2) %>% 
+    width(j = "issue", width = 3) %>% 
+    width(j = "response", width = 2) %>% 
+    font(fontname = "Times New Roman", part = "all") %>%
+    fontsize(size = 9, part = "all") %>%
+    padding(padding = 2, part = "all") %>%
+    border_inner_h(border = officer::fp_border(color = "black", width = 1), part = "body") %>%
+    border_inner_v(border = officer::fp_border(color = "black", width = 1), part = "all")
+}
 
-# save individual level results as excel file
-var_key <- tibble::tribble(
-  ~variable,      ~description,
-  "KEY",         "key",
-  "f03",         "observation id",
-  "question",    "question number in tool (q27 rows are one summary row per death type reviewed, per submission)",
-  "label",       "question label (for q27 rows: which death type -- maternal/stillbirth/neonatal/child -- this row is about)",
-  "issue",       "description of issue (for q27 rows: all flagged sub-issues for that death type, concatenated)"
-)
+fn_make_flextable(tool_results)
+```
 
-wb <- createWorkbook()
-addWorksheet(wb, "toolC-main")
-writeData(wb, "toolC-main", tool_results)
 
-addWorksheet(wb, "variable-key")
-writeData(wb, "variable-key", var_key)
-setColWidths(wb, "variable-key", cols = 1:2, widths = c(18, 100))
-
-# Save the dated version to archive
-saveWorkbook(wb, paste0(mypath_results,"./data-queries-toolC_", format(Sys.Date(), "%Y%m%d"), ".xlsx"), overwrite = TRUE)
