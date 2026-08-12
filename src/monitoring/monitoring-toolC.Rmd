@@ -14,7 +14,6 @@ knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
 library(dplyr)
 library(tidyr)
 library(readr)
-library(httr2) 
 library(here)
 library(officedown)
 library(officer)
@@ -24,33 +23,220 @@ library(stringr)
 library(purrr)
 ```
 
-```{r pull-data, results='asis'}
-# Build the submissions.csv.zip URL and download
-zip_url <- Sys.getenv("ODK_URL_ToolC") %>%
-  sub("forms/hfe-tool-c/", "forms/hfe-tool-c-final/", .) %>%
-  sub("\\.csv$", ".csv.zip", .)
+```{r load-data, results='asis'}
+mypath <- here::here("data")
 
-resp <- request(zip_url) %>%
-  req_url_query(groupPaths = "false", splitSelectMultiples = "false") %>%
-  req_auth_basic(Sys.getenv("ODK_USER"), Sys.getenv("ODK_PASSWORD")) %>%
-  req_perform()
-
-# Record the exact moment the pull completed successfully
-pull_time <- Sys.time()
-
-# Unzip and read every CSV into a named list of tibbles
-exdir <- tempfile(); dir.create(exdir)
-tmp <- tempfile(fileext = ".zip")
-writeBin(resp_body_raw(resp), tmp)
-csv_files <- unzip(tmp, exdir = exdir) %>% grep("\\.csv$", ., ignore.case = TRUE, value = TRUE)
-tables <- setNames(
-  lapply(csv_files, readr::read_csv, show_col_types = FALSE),
-  tools::file_path_sans_ext(basename(csv_files))
+# Find the most recent local ToolC data file (csv or csv.zip)
+tool_c_files <- list.files(
+  mypath, 
+  pattern = "^hfe-tool-c-final_\\d{8}\\.(csv|csv\\.zip)$", 
+  full.names = TRUE
 )
+
+if (length(tool_c_files) == 0) {
+  stop("No local Tool C file found in ", mypath, 
+       " — run the pull-and-archive script first.")
+}
+
+# Extract the date suffix and take the latest
+file_dates <- str_extract(tool_c_files, "\\d{8}")
+latest_file <- tool_c_files[which.max(as.Date(file_dates, format = "%Y%m%d"))]
+
+# Load the matching metadata sidecar for the true pull timestamp
+meta_file <- sub("\\.(csv\\.zip|csv)$", ".meta.json", latest_file)
+if (file.exists(meta_file)) {
+  meta <- jsonlite::fromJSON(meta_file)
+  pull_time <- as.POSIXct(meta$pulled_at, format = "%Y-%m-%dT%H:%M:%S%z")
+} else {
+  warning("No metadata sidecar found for ", latest_file, "; using file mtime instead.")
+  pull_time <- file.info(latest_file)$mtime
+}
+
+# Read the data — handle zip vs plain csv
+if (grepl("\\.zip$", latest_file)) {
+  exdir <- tempfile(); dir.create(exdir)
+  csv_files <- unzip(latest_file, exdir = exdir) %>% 
+    grep("\\.csv$", ., ignore.case = TRUE, value = TRUE)
+  tables <- setNames(
+    lapply(csv_files, readr::read_csv, show_col_types = FALSE),
+    tools::file_path_sans_ext(basename(csv_files))
+  )
+} else {
+  tables <- setNames(
+    list(readr::read_csv(latest_file, show_col_types = FALSE)),
+    tools::file_path_sans_ext(basename(latest_file))
+  )
+}
+
 dat <- tables$`hfe-tool-c-final`
 dat_q27 <- tables$`hfe-tool-c-final-dth_review_repeat`
+```
 
-cat("**Data pulled:**", format(pull_time, "%B %d, %Y at %I:%M %p %Z"))
+```{r facility-lookup, include=FALSE}
+facility_lookup <- c(
+  BPHC = "Balare Primary Health Centre",
+  TORA = "Toranke Primary Health Centre",
+  ALBA = "Albasu Primary Health Centre",
+  HUNG = "Hungu Primary Health Centre",
+  ABBA = "Abbas Primary Health Centre",
+  BEGH = "Bebeji General Hospital",
+  TIGH = "Tiga General Hospital",
+  BIGH = "Bichi General Hospital",
+  BUNK = "Bunkure Primary Health Centre",
+  KUMU = "Kumurya Basic Health Clinic",
+  MSMH = "Mariya Sanusi Maternity",
+  WAGH = "Waziri Shehu Gidado General Hospital",
+  KURN = "Kurna Primary Health Centre",
+  DALA = "Dala Maternal And Child Health Centre",
+  DAND = "Dandinshe Mphc Primary Health Centre",
+  YALW = "Yalwa Phc (Dal)",
+  DAGH = "Danbatta General Hospital",
+  DKGH = "Dawakin Kudu General Hospital",
+  DTGH = "Dawakin Tofa General Hospital",
+  DADI = "Dadin Kowa Primary Health Centre",
+  DOGH = "Doguwa General Hospital",
+  RIRU = "Riruwai Phc",
+  SMGH = "Sheikh Muhammad Jidda General Hospital",
+  DALM = "Dal Model Primary Health Centre",
+  GARK = "Garko Model Primary Health Centre",
+  BALA = "Balan Model Primary Health Centre",
+  RABI = "Dr Rabiu Musa Kwankwaso Health Clinic",
+  NAFI = "Nafisatu Health Clinic",
+  GAGH = "Gaya General Hospital",
+  YANA = "Yan Audu Health Post",
+  GEGH = "Gezawa General Hospital",
+  IWGH = "Imam Wali General Hospital",
+  GWGH = "Gwarzo General Hospital",
+  GAND = "Gandu Model Primary Health Centre",
+  NBGH = "Nuhu Bamalli General Hospital",
+  UGIN = "Unguwar Gini Primary Health Centre",
+  SHAR = "Sharada Primary Health Centre",
+  SBMH = "Sabo Bakin Zuwo Maternity Hospital",
+  MMSH = "Murtala Muhammad Specialist Hospital",
+  KESH = "Karaye Emirate Specialist Hospital",
+  CHAL = "Chalawa Primary Health Centre",
+  SHEK = "Shekar Barde Primary Health Centre",
+  MARI = "Mariri Model Primary Health Centre",
+  PANS = "Panshekara Primary Health Centre",
+  KUGH = "Kura General Hospital",
+  AKIL = "Akilu Memorial Primary Health Centre",
+  KANT = "Kantudu Health Post",
+  MAKO = "Makoda Model Primary Health Centre",
+  MIGH = "Minjibir General Hospital",
+  MAWH = "Muhammad Abdullahi Wase Teaching Hospital",
+  MSGH = "Sir Mohammed Sanusi General Hospital",
+  RAGH = "Rano General Hospital",
+  BELI = "Beli Basic Health Clinic",
+  FALG = "Falgore Model Primary Health Centre",
+  BARI = "Bari Model Primary Health Centre",
+  ROGH = "Rogo General Hospital",
+  GANI = "Gani Primary Health Centre",
+  SUGH = "Sumaila General Hospital",
+  SUMA = "Sumaila Yamma Primary Health Centre",
+  RIMI = "Rimi Basic Health Clinic",
+  SITT = "Sitti Basic Health Clinic",
+  DAMB = "Dambazau Primary (Bello Danbazau) Health Centre",
+  TAKA = "Takai Nysc Primary Health Centre",
+  AKTH = "Aminu Kano Teaching Hospital",
+  UUKU = "Unguwa Uku Primary Health Centre",
+  TOFA = "Tofa Comprehensive Health Centre",
+  TWGH = "Tudun Wada General Hospital",
+  WARA = "Warawa Primary Health Centre",
+  WUGH = "Wudil General Hospital",
+  KASH = "General Hospital Kashere",
+  KUOH = "Kumo Gh",
+  BBCH = "Cottage Hospital Bambam",
+  TAGH = "Talasse Gh",
+  SABO = "Sabonlayi Phcc",
+  BANG = "Banganje Primary Health Centre",
+  KETE = "Ketengereng Phc",
+  SANS = "Sansani Primary Health Centre",
+  BILH = "Billiri Gh",
+  KEKK = "Kekkel Maternal And Child Health Clinic",
+  POBA = "Pobawure Primary Health Centre",
+  AYAB = "Ayaba Primary Health Centre",
+  TUDU = "Tudu Primary Health Centre",
+  GOMB = "Gombe Abba Phc",
+  HASH = "Hashidu Primary Health Centre",
+  KUND = "Kunde Primary Health Clinic",
+  DUKK = "Dukku Phc",
+  BOZO = "Bozomshulwa Prmary Health Center",
+  DUGH = "Dukku Gh",
+  WURO = "Wuro Tale Phc",
+  ZAUN = "Zaune Primary Health Centre",
+  JALI = "Jalingo Primary Health Centre",
+  BAGE = "Bage Primary Health Centre",
+  BAGH = "Bajoga Gh",
+  BAJO = "Bajoga Primary Health Center",
+  JILL = "Jillahi Primary Health Centre",
+  KUPT = "Kupto Primary Health Centre",
+  RIBA = "Ribadu Primary Health Centre",
+  TONG = "Tongo Primary Health Centre",
+  WAWA = "Wawa Maternal And Child Health Clinic",
+  GFTH = "Federal Teaching Hospital",
+  ZWCH = "Zainab Bulkachuwa Women And Children Hospital",
+  GSSH = "Gombe State Specialist Hospital",
+  TOWN = "Town Primary Health Centre",
+  SLAP = "Sabon Layi Awak Phc",
+  KALT = "Kaltin Primary Health Centre",
+  KAGH = "Kaltungo Gh",
+  DIRR = "Dirri Health Centre",
+  DOHO = "Doho Primary Health Centre",
+  DLPH = "Dukkul Primary Health Center",
+  GADA = "Gadam Health Care",
+  JURA = "Jurara Primary Health Centre",
+  KWAM = "Kwami Primary Health Centre",
+  ABUJ = "Abuja Health Clinic",
+  MSCH = "Mallam Sidi Cottage Hospital",
+  MSPH = "Mallam Sidi Phc",
+  MALL = "Malleri Health Clinic",
+  BNPH = "Barwo Nasarawo Phc",
+  BWPH = "Barwo Winde Phc",
+  BIRI = "Birin Bolewa Phc",
+  NAGH = "General Hospital Nafada",
+  BURA = "Burak Primary Health Clinic",
+  FICH = "Filiya Cottage Hospital",
+  KUSH = "Kushi Kauri Primary Health Clinic",
+  LALA = "Lalaipido Primary Health Clinic",
+  DEGH = "Deba Gh",
+  DEBA = "Deba Primary Health Centre",
+  SHIN = "Shinga Primary Health Centre",
+  DADK = "Dadin Kowa Model Primary Health Center",
+  MAIK = "Maikaho Primary Health Centre",
+  KURJ = "Kurjale Primary Health Centre",
+  KWAD = "Kwadon Primary Health Centre",
+  KUCH = "Cottage Hospital Kuri",
+  LUBO = "Lubo Primary Health Centre",
+  NONO = "Nono S Kudu Primary Health Centre",
+  ZAMB = "Zambuk Primary Health Centre"
+)
+```
+
+
+```{r pull-summary, results='asis'}
+# Summary of this data pull: when it happened, how many entries came in,
+# and which facilities (by name) have submitted at least one entry.
+# facility_lookup comes from the facility-lookup chunk above.
+
+facility_codes_in_pull <- unique(str_extract(dat$f03, "(?<=-)[A-Z]+(?=-)"))
+facility_codes_in_pull <- facility_codes_in_pull[!is.na(facility_codes_in_pull)]
+facility_names_in_pull <- sort(unname(facility_lookup[facility_codes_in_pull]))
+
+cat("**Data pulled:**", format(pull_time, "%B %d, %Y at %I:%M %p %Z"), "\n\n")
+cat("**Entries (rows):**", nrow(dat), "\n\n")
+cat("**Facilities with entries:**", paste(facility_names_in_pull, collapse = "; "))
+```
+
+
+```{r spot-checks, eval = FALSE}
+dat %>%
+  filter(f03 =="09-IWGH-C") %>%
+  select(starttime, endtime, q13a, `q13a6...31`,q13b, `q13a6...36`,  q247, q248, starts_with("m242a1"))
+
+dat %>%
+  filter(f03 == "46-FICH-C") %>%
+  select(`gps-Latitude`, `gps-Longitude`)
+
 ```
 
 ```{r conditions}
@@ -111,6 +297,11 @@ cond_f03_dup <- !is.na(dat$f03) & trimws(dat$f03) != "" &  (duplicated(dat$f03) 
 cond_f04 <- (is.na(dat$f04) | trimws(dat$f04) == "")
 cond_f04oth <- !is.na(dat$f04) & dat$f04 == "96" & (is.na(dat$f04oth) | trimws(dat$f04oth) == "")
 
+# GPS capture: flag if latitude or longitude is blank/NA (a visit with no
+# location captured at all). Altitude/accuracy aren't required for this check.
+cond_gps_blank <- (is.na(dat$`gps-Latitude`) | trimws(dat$`gps-Latitude`) == "") |
+                   (is.na(dat$`gps-Longitude`) | trimws(dat$`gps-Longitude`) == "")
+
 
 
 # Section 1: System characteristics ---------------------------------------
@@ -120,6 +311,18 @@ cond_q11  <- (is.na(dat$q11) | trimws(dat$q11) == "")
 cond_q11a <- !is.na(dat$q11) & dat$q11 == "2" & (is.na(dat$q11a) | trimws(dat$q11a) == "")
 cond_q12  <- (is.na(dat$q12) | trimws(dat$q12) == "")
 cond_q12a <- !is.na(dat$q12) & dat$q12 == "2" & (is.na(dat$q12a) | trimws(dat$q12a) == "")
+
+# Helper: flags an attempted "missing" code that isn't the exact designated
+# code (9999) for the q13*1 year-captured fields -- e.g. an extra/dropped digit
+# (99999, 999), or the wrong code entirely (8888, the code used elsewhere
+# in this form for the m242 monthly count fields).
+is_improper_missing_year <- function(x) {
+  xc <- trimws(as.character(x))
+  !is.na(x) & xc != "" & (
+    (grepl("^9+$", xc) & xc != "9999") |
+    (xc == "8888")
+  )
+}
 
 # Maternal death capture
 cond_q13a <- (is.na(dat$q13a) | trimws(dat$q13a) == "")
@@ -134,6 +337,7 @@ cond_q13a1_ca <- !is.na(dat$q13a) & dat$q13a == "1" & (is.na(dat$q13a1) | trimws
 cond_q13a1_cb <- !is.na(dat$q13a) & dat$q13a == "1" & (!is.na(dat$q13a1) & (as.numeric(dat$q13a1) >= 2027 & as.numeric(dat$q13a1) != 9999))
 # Flagging an implausibly early year
 cond_q13a1_soft1990 <- !is.na(dat$q13a) & dat$q13a == "1" & (!is.na(dat$q13a1) & as.numeric(dat$q13a1) < 1990 & as.numeric(dat$q13a1) != 9999)
+cond_q13a1_impropermissing <- !is.na(dat$q13a) & dat$q13a == "1" & is_improper_missing_year(dat$q13a1)
 cond_q13a2 <- !is.na(dat$q13a) & dat$q13a == "1" & (is.na(dat$q13a2) | trimws(dat$q13a2) == "")
 cond_q14a <- !is.na(dat$q13a) & dat$q13a == "1" & (is.na(dat$q14a) | trimws(dat$q14a) == "")
 
@@ -143,6 +347,7 @@ cond_neg_q13bwhy <- !is.na(dat$q13b) & dat$q13b == "0" & (is.na(dat$q13bwhy) | t
 cond_q13b1_ca <- !is.na(dat$q13b) & dat$q13b == "1" & (is.na(dat$q13b1) | trimws(dat$q13b1) == "")
 cond_q13b1_cb <- !is.na(dat$q13b) & dat$q13b == "1" & (!is.na(dat$q13b1) & (as.numeric(dat$q13b1) >= 2027 & as.numeric(dat$q13b1) != 9999))
 cond_q13b1_soft1990 <- !is.na(dat$q13b) & dat$q13b == "1" & (!is.na(dat$q13b1) & as.numeric(dat$q13b1) < 1990 & as.numeric(dat$q13b1) != 9999)
+cond_q13b1_impropermissing <- !is.na(dat$q13b) & dat$q13b == "1" & is_improper_missing_year(dat$q13b1)
 cond_q13b2 <- !is.na(dat$q13b) & dat$q13b == "1" & (is.na(dat$q13b2) | trimws(dat$q13b2) == "")
 cond_q14b <- !is.na(dat$q13b) & dat$q13b == "1" & (is.na(dat$q14b) | trimws(dat$q14b) == "")
 
@@ -152,6 +357,7 @@ cond_neg_q13cwhy <- !is.na(dat$q13c) & dat$q13c == "0" & (is.na(dat$q13cwhy) | t
 cond_q13c1_ca <- !is.na(dat$q13c) & dat$q13c == "1" & (is.na(dat$q13c1) | trimws(dat$q13c1) == "")
 cond_q13c1_cb <- !is.na(dat$q13c) & dat$q13c == "1" & (!is.na(dat$q13c1) & (as.numeric(dat$q13c1) >= 2027 & as.numeric(dat$q13c1) != 9999))
 cond_q13c1_soft1990 <- !is.na(dat$q13c) & dat$q13c == "1" & (!is.na(dat$q13c1) & as.numeric(dat$q13c1) < 1990 & as.numeric(dat$q13c1) != 9999)
+cond_q13c1_impropermissing <- !is.na(dat$q13c) & dat$q13c == "1" & is_improper_missing_year(dat$q13c1)
 cond_q13c2 <- !is.na(dat$q13c) & dat$q13c == "1" & (is.na(dat$q13c2) | trimws(dat$q13c2) == "")
 cond_q14c <- !is.na(dat$q13c) & dat$q13c == "1" & (is.na(dat$q14c) | trimws(dat$q14c) == "")
 
@@ -161,6 +367,7 @@ cond_neg_q13dwhy <- !is.na(dat$q13d) & dat$q13d == "0" & (is.na(dat$q13dwhy) | t
 cond_q13d1_ca <- !is.na(dat$q13d) & dat$q13d == "1" & (is.na(dat$q13d1) | trimws(dat$q13d1) == "")
 cond_q13d1_cb <- !is.na(dat$q13d) & dat$q13d == "1" & (!is.na(dat$q13d1) & (as.numeric(dat$q13d1) >= 2027 & as.numeric(dat$q13d1) != 9999))
 cond_q13d1_soft1990 <- !is.na(dat$q13d) & dat$q13d == "1" & (!is.na(dat$q13d1) & as.numeric(dat$q13d1) < 1990 & as.numeric(dat$q13d1) != 9999)
+cond_q13d1_impropermissing <- !is.na(dat$q13d) & dat$q13d == "1" & is_improper_missing_year(dat$q13d1)
 cond_q13d2 <- !is.na(dat$q13d) & dat$q13d == "1" & (is.na(dat$q13d2) | trimws(dat$q13d2) == "")
 cond_q14d <- !is.na(dat$q13d) & dat$q13d == "1" & (is.na(dat$q14d) | trimws(dat$q14d) == "")
 
@@ -579,36 +786,55 @@ is_invalid_val <- function(x) {
   !is_blank_val(x) & (is.na(num_x) | num_x < 0)
 }
 
-# family metadata: prefix = column prefix (e.g. "m242a1"), gate_var = the
-# calculate field this family's relevant condition depends on (NA = unconditional
-# field-list group, always asked), label_stub = human-readable indicator name
+is_high_val <- function(x, max_plausible = 50) {
+  # non-blank, valid number, not the 8888 "not applicable" code, and above a
+  # plausible monthly count for a single facility. Tune max_plausible if a
+  # legitimately busy facility clears this on the higher-volume indicators.
+  num_x <- suppressWarnings(as.numeric(x))
+  !is_blank_val(x) & !is.na(num_x) & num_x != 8888 & num_x > max_plausible
+}
+
+is_improper_missing_val <- function(x) {
+  # Catches an attempted "missing" codethat isn't the exact designated
+  # code (8888) for this field -- e.g. an extra/dropped digit (88888, 888),
+  # or the wrong code entirely (9999, which is the code used elsewhere
+  # in this form for the q13*1 "year" fields). These pass the is_invalid_val()
+  # check above (non-negative, numeric) and would otherwise slip through
+  # silently as a plausible count.
+  xc <- trimws(as.character(x))
+  !is_blank_val(x) & (
+    (grepl("^8+$", xc) & xc != "8888") |
+    (xc == "9999")
+  )
+}
+
 month_families <- tribble(
   ~prefix,    ~gate_var,      ~label_stub,
-  "m242a1", NA_character_, "Facility-based maternal deaths",
+  "m242a1", NA_character_, "Facility-based maternal deaths",  # REQUIRED
   "m242a2", "skiptob",     "Facility maternal deaths notified <24h",
   "m242a3", "skiptob",     "Facility maternal deaths reviewed",
   "m242a4", "skiptob",     "Facility maternal death reviews w/ recommendations",
   "m242a5", "skiptob",     "Facility maternal death reviews w/ community participation",
-  "m242a6", NA_character_, "Community-based maternal deaths",
+  "m242a6", NA_character_, "Community-based maternal deaths",   # REQUIRED
   "m242a7", "sum_a6",      "Community maternal deaths notified <24h",
   "m242a8", "sum_a6",      "Community maternal VASA conducted",
   "m242a9", "sum_a6",      "Community maternal VASA w/ recommendations",
   
-  "m242b1", NA_character_, "Facility-based neonatal deaths",
+  "m242b1", NA_character_, "Facility-based neonatal deaths",   # REQUIRED
   "m242b2", "sum_b1",      "Facility neonatal deaths notified <24h",
   "m242b3", "sum_b1",      "Facility neonatal deaths reviewed",
   "m242b4", "sum_b1",      "Facility neonatal death reviews w/ recommendations",
   "m242b5", "sum_b1",      "Facility neonatal death reviews w/ community participation",
-  "m242b6", NA_character_, "Community-based neonatal deaths",
+  "m242b6", NA_character_, "Community-based neonatal deaths",   # REQUIRED
   "m242b7", "sum_b6",      "Community neonatal deaths notified <24h",
   "m242b8", "sum_b6",      "Community neonatal VASA conducted",
   "m242b9", "sum_b6",      "Community neonatal VASA w/ recommendations",
   
-  "m242c1", NA_character_, "Facility-based stillbirths",
+  "m242c1", NA_character_, "Facility-based stillbirths",   # REQUIRED
   "m242c3", "sum_c1",      "Facility stillbirths reviewed",
   "m242c4", "sum_c1",      "Facility stillbirth reviews w/ recommendations",
   "m242c5", "sum_c1",      "Facility stillbirth reviews w/ community participation",
-  "m242c6", NA_character_, "Community-based stillbirths",
+  "m242c6", NA_character_, "Community-based stillbirths",  # REQUIRED
   "m242c7", "sum_c6",      "Community stillbirths notified <24h",
   "m242c8", "sum_c6",      "Community stillbirth VASA conducted",
   "m242c9", "sum_c6",      "Community stillbirth VASA w/ recommendations"
@@ -636,18 +862,31 @@ month_check_defs <- pmap_dfr(month_families, function(prefix, gate_var, label_st
   
   n_present <- length(present_cols)
   
-  blank_matrix   <- sapply(present_cols, function(cn) is_blank_val(dat[[cn]]))
-  invalid_matrix <- sapply(present_cols, function(cn) is_invalid_val(dat[[cn]]))
-  if (is.null(dim(blank_matrix)))   blank_matrix   <- matrix(blank_matrix,   ncol = n_present)
-  if (is.null(dim(invalid_matrix))) invalid_matrix <- matrix(invalid_matrix, ncol = n_present)
+  blank_matrix            <- sapply(present_cols, function(cn) is_blank_val(dat[[cn]]))
+  invalid_matrix          <- sapply(present_cols, function(cn) is_invalid_val(dat[[cn]]))
+  high_matrix             <- sapply(present_cols, function(cn) is_high_val(dat[[cn]]))
+  improper_missing_matrix <- sapply(present_cols, function(cn) is_improper_missing_val(dat[[cn]]))
+  if (is.null(dim(blank_matrix)))            blank_matrix            <- matrix(blank_matrix,            ncol = n_present)
+  if (is.null(dim(invalid_matrix)))          invalid_matrix          <- matrix(invalid_matrix,          ncol = n_present)
+  if (is.null(dim(high_matrix)))             high_matrix             <- matrix(high_matrix,             ncol = n_present)
+  if (is.null(dim(improper_missing_matrix))) improper_missing_matrix <- matrix(improper_missing_matrix, ncol = n_present)
   
-  n_blank   <- rowSums(blank_matrix)
-  n_invalid <- rowSums(invalid_matrix)
+  # A cell caught by the improper-missing check (e.g. 9999, 88888) is an
+  # attempted missing-value entry, not a real count -- don't also count it
+  # toward "implausibly high" so it only trips the one, more specific flag.
+  high_matrix <- high_matrix & !improper_missing_matrix
   
-  all_blank    <- n_blank == n_present
-  some_blank   <- n_blank > 0 & n_blank < n_present
-  all_invalid  <- n_invalid == n_present
-  some_invalid <- n_invalid > 0 & n_invalid < n_present
+  n_blank             <- rowSums(blank_matrix)
+  n_invalid           <- rowSums(invalid_matrix)
+  n_high              <- rowSums(high_matrix)
+  n_improper_missing  <- rowSums(improper_missing_matrix)
+  
+  all_blank            <- n_blank == n_present
+  some_blank           <- n_blank > 0 & n_blank < n_present
+  all_invalid          <- n_invalid == n_present
+  some_invalid         <- n_invalid > 0 & n_invalid < n_present
+  some_high            <- n_high > 0
+  some_improper_missing <- n_improper_missing > 0
   
   make_row <- function(suffix, flag_vec, label_suffix, issue_suffix) {
     cond_name <- paste0("cond_", prefix, "_", suffix)
@@ -668,7 +907,11 @@ month_check_defs <- pmap_dfr(month_families, function(prefix, gate_var, label_st
     make_row("somemonths_missing", some_blank,   "some months blank/NA",
              "is blank/NA for some (but not all) available months"),
     make_row("allmonths_missing",  all_blank,    "all months blank/NA",
-             "is blank/NA for all available months")
+             "is blank/NA for all available months"),
+    make_row("somemonths_high",    some_high,    "implausibly high month value",
+             "has a month value other than 8888 that looks implausibly high (>50)"),
+    make_row("somemonths_impropermissing", some_improper_missing, "improper missing value used",
+             "has a month value that appears to be an attempted missing-value entry (e.g., 88888, or 9999) rather than the designated missing code of 8888 -- an improper missing value was used")
   )
 })
 
@@ -738,15 +981,19 @@ cond_q255 <- (is.na(dat$q255) | trimws(dat$q255) == "")
 
 # Duration plausibility -----------------------------------------------------
 
-# Consent script states assessment takes ~30-60 minutes. Flag durations far outside that window
+# Consent script states assessment takes ~30-60 minutes. Flag durations far outside that window.
+# Long durations here typically mean the form was left open and resumed later
 dat$duration_mins <- as.numeric(difftime(dat$endtime, dat$starttime, units = "mins"))
-cond_duration_short <- !is.na(dat$duration_mins) & dat$duration_mins < 15
-cond_duration_long  <- !is.na(dat$duration_mins) & dat$duration_mins > 240
+#cond_duration_short <- !is.na(dat$duration_mins) & dat$duration_mins < 15
+#cond_duration_long  <- !is.na(dat$duration_mins) & dat$duration_mins > 60*14
 
 # Condition definitions ---------------------------------------------------
 
 check_defs <- tribble(
   ~cond_name,            ~question,           ~label,                     ~issue,
+  
+  # Duration plausibility
+  #"cond_duration_long",  "starttime / endtime", "Assessment duration",  "Assessment duration is over 14 hours -- potential timestamp issue, or left open/resumed later?",
   
   # Front matter
   "cond_level1",  "level1", "State selected",             "State is blank (level1)",
@@ -771,6 +1018,7 @@ check_defs <- tribble(
   "cond_f03_dup",    "f03",           "Facility ID duplicate",        "Facility ID (f03) is duplicated across multiple submissions",
   "cond_f04",        "f04",           "Assistant position",           "Assistant position is blank (f04)",
   "cond_f04oth",     "f04 / f04oth",  "Assistant position other",      "Other selected for assistant's position (f04=96) but f04oth is blank",
+  "cond_gps_blank",  "gps-Latitude / gps-Longitude", "GPS location captured", "GPS latitude and/or longitude is blank -- no location captured for this visit",
   
   # System characteristics intro
   "cond_q11",       "q11",       "State MPCDSR policy/guidelines available", "State policy/guidelines available is blank (q11)",
@@ -784,6 +1032,7 @@ check_defs <- tribble(
   "cond_q13a1_ca",      "q13a / q13a1",    "Maternal death captured since year", "Maternal deaths captured (q13a=1) and year that capture began is blank (q13a1)",
   "cond_q13a1_cb",      "q13a / q13a1",    "Maternal death captured since year", "Maternal deaths captured (q13a=1) and year that capture began is >= 2027 and does not equal the designated missing value of 9999 (q13a1)",
   "cond_q13a1_soft1990","q13a / q13a1",    "Maternal death captured since year (soft flag)", "SOFT FLAG: Maternal deaths captured (q13a=1) and year that capture began is < 1990 (implausible; not enforced by the form) (q13a1)",
+  "cond_q13a1_impropermissing","q13a / q13a1", "Maternal death captured since year (improper missing)", "Maternal deaths captured (q13a=1) and year that capture began (q13a1) looks like an attempted missing-value entry (e.g., 99999, or 8888) rather than the designated missing code of 9999 -- an improper missing value was used",
   "cond_q13a2",         "q13a / q13a2",    "Community-based maternal deaths captured", "Maternal deaths captured (q13a=1) and community-capture flag is blank (q13a2)",
   "cond_q14a",          "q13a / q14a",     "Maternal death definition",      "Maternal deaths captured (q13a=1) and definition is blank (q14a)",
   
@@ -793,6 +1042,7 @@ check_defs <- tribble(
   "cond_q13b1_ca",      "q13b / q13b1",    "Stillbirth captured since year", "Stillbirths captured (q13b=1) and year that capture began is blank (q13b1)",
   "cond_q13b1_cb",      "q13b / q13b1",    "Stillbirth captured since year", "Stillbirths captured (q13b=1) and year that capture began is >= 2027 and does not equal the designated missing value of 9999 (q13b1)",
   "cond_q13b1_soft1990","q13b / q13b1",    "Stillbirth captured since year (soft flag)", "SOFT FLAG: Stillbirths captured (q13b=1) and year that capture began is < 1990 (implausible; not enforced by the form) (q13b1)",
+  "cond_q13b1_impropermissing","q13b / q13b1", "Stillbirth captured since year (improper missing)", "Stillbirths captured (q13b=1) and year that capture began (q13b1) looks like an attempted missing-value entry (e.g., 99999, or 8888) rather than the designated missing code of 9999 -- an improper missing value was used",
   "cond_q13b2",         "q13b / q13b2",    "Community-based stillbirths captured", "Stillbirths captured (q13b=1) and community-capture flag is blank (q13b2)",
   "cond_q14b",          "q13b / q14b",     "Stillbirth definition",           "Stillbirths captured (q13b=1) and definition is blank (q14b)",
   
@@ -802,6 +1052,7 @@ check_defs <- tribble(
   "cond_q13c1_ca",      "q13c / q13c1",    "Neonatal death since year",      "Neonatal deaths captured (q13c=1) and year that capture began is blank (q13c1)",
   "cond_q13c1_cb",      "q13c / q13c1",    "Neonatal death since year",      "Neonatal deaths captured (q13c=1) and year that capture began is >= 2027 and does not equal the designated missing value of 9999 (q13c1)",
   "cond_q13c1_soft1990","q13c / q13c1",    "Neonatal death since year (soft flag)", "SOFT FLAG: Neonatal deaths captured (q13c=1) and year that capture began is < 1990 (implausible; not enforced by the form) (q13c1)",
+  "cond_q13c1_impropermissing","q13c / q13c1", "Neonatal death since year (improper missing)", "Neonatal deaths captured (q13c=1) and year that capture began (q13c1) looks like an attempted missing-value entry (e.g., 99999, or 8888) rather than the designated missing code of 9999 -- an improper missing value was used",
   "cond_q13c2",         "q13c / q13c2",    "Community-based neonatal deaths captured", "Neonatal deaths captured (q13c=1) and community-capture flag is blank (q13c2)",
   "cond_q14c",          "q13c / q14c",     "Neonatal death definition",      "Neonatal deaths captured (q13c=1) and definition is blank (q14c)",
   
@@ -811,6 +1062,7 @@ check_defs <- tribble(
   "cond_q13d1_ca",      "q13d / q13d1",    "Child death since year",         "Child deaths captured (q13d=1) and year that capture began is blank (q13d1)",
   "cond_q13d1_cb",      "q13d / q13d1",    "Child death since year",         "Child deaths captured (q13d=1) and year that capture began is >= 2027 and does not equal the designated missing value of 9999 (q13d1)",
   "cond_q13d1_soft1990","q13d / q13d1",    "Child death since year (soft flag)", "SOFT FLAG: Child deaths captured (q13d=1) and year that capture began is < 1990 (implausible; not enforced by the form) (q13d1)",
+  "cond_q13d1_impropermissing","q13d / q13d1", "Child death since year (improper missing)", "Child deaths captured (q13d=1) and year that capture began (q13d1) looks like an attempted missing-value entry (e.g., 99999, or 8888) rather than the designated missing code of 9999 -- an improper missing value was used",
   "cond_q13d2",         "q13d / q13d2",    "Community-based child deaths captured", "Child deaths captured (q13d=1) and community-capture flag is blank (q13d2)",
   "cond_q14d",          "q13d / q14d",     "Child death definition",         "Child deaths captured (q13d=1) and definition is blank (q14d)",
   
@@ -1112,9 +1364,6 @@ check_defs <- tribble(
   "cond_q254",      "q254",           "Data quality assessments past 12m",      "Data quality assessments is blank (q254)",
   "cond_q255",      "q255",           "Data visuals available on-site",         "Data visuals available is blank (q255)",
   
-  # duration
-  "cond_duration_short", "starttime / endtime",  "Interview duration",  "Potentially implausible interview duration -- under 15 minutes",
-  "cond_duration_long",  "starttime / endtime",  "Interview duration",  "Potentially implausible interview duration -- over 4 hours"
 )
 
 
@@ -1168,39 +1417,113 @@ if (nrow(section_q27_results) > 0) {
 #   group_by(question, label, issue) %>%
 #   summarise(n = n())
 
+```
+
+```{r compare-to-previous}
+
+# Compare against previous day's flagged queries ---------------------------
+
+# Snapshots are dated (one file per day), so re-running multiple times in
+# one day always compares against the most recent prior day's snapshot,
+# not against something written earlier today.
+
+snapshot_dir <- here::here("gen", "monitoring", "query_snapshots")
+if (!dir.exists(snapshot_dir)) dir.create(snapshot_dir, recursive = TRUE)
+
+today_str <- format(Sys.Date(), "%Y%m%d")
+today_snapshot_path <- file.path(snapshot_dir, sprintf("toolC_query_snapshot_%s.csv", today_str))
+
+# find snapshot files from any day BEFORE today
+existing_snapshots <- list.files(snapshot_dir, pattern = "^toolC_query_snapshot_\\d{8}\\.csv$", full.names = TRUE)
+snapshot_dates <- str_extract(basename(existing_snapshots), "\\d{8}")
+prior_snapshots <- existing_snapshots[snapshot_dates < today_str]
+
+if (length(prior_snapshots) > 0) {
+  # most recent prior day
+  latest_prior <- prior_snapshots[which.max(as.Date(snapshot_dates[snapshot_dates < today_str], format = "%Y%m%d"))]
+  previous_snapshot <- readr::read_csv(latest_prior, show_col_types = FALSE)
+} else {
+  previous_snapshot <- tibble(KEY = character(), question = character(), label = character())
+}
+
+# full set of issues flagged in THIS pull, before filtering to "new only"
+tool_results_full <- tool_results
+
+# queries not present in the most recent PRIOR day's snapshot = new
+tool_results_new <- tool_results_full %>%
+  anti_join(previous_snapshot, by = c("KEY", "question", "label"))
+
+# always (over)write TODAY's snapshot — safe to run multiple times a day,
+# since the comparison baseline above only ever looks at prior days
+readr::write_csv(
+  tool_results_full %>% 
+    select(KEY, question, label) %>%
+    mutate(data_pulled_at = format(pull_time, "%Y-%m-%dT%H:%M:%S%z")),
+  today_snapshot_path
+)
+
+tool_results <- tool_results_new
+
 # No-issues placeholder ----------------------------------------------------
 
-# if every check came back clean, tool_results will have 0 rows
-# insert a single placeholder row
 if (nrow(tool_results) == 0) {
-  tool_results <- tibble(
-    KEY      = NA_character_,
-    f03      = NA_character_,
-    question = NA_character_,
-    label    = "No issues found",
-    issue    = "All checks passed -- no flags raised"
-  )
+  if (nrow(tool_results_full) == 0) {
+    tool_results <- tibble(
+      KEY = NA_character_, 
+      f03 = NA_character_, 
+      question = NA_character_,
+      label = "No issues found", 
+      issue = "All checks passed -- no flags raised"
+    )
+  } else {
+    tool_results <- tibble(
+      KEY = NA_character_,
+      f03 = NA_character_, 
+      question = NA_character_,
+      label = "No new issues", 
+      issue = "No new data queries since the previous report"
+    )
+  }
 }
 ```
 
 ```{r create-table}
 # define flextable
 fn_make_flextable <- function(dat) {
-  dat %>%
+  dat  %>%
     select(-KEY) %>%
-    arrange(f03, question) %>%
-    mutate(response = "") %>%
+    mutate(
+        facility_code = str_extract(f03, "(?<=-)[A-Z]+(?=-)"),
+        facility_name = facility_lookup[facility_code],
+        comments = NA_character_
+      ) %>%
+    arrange(facility_name, f03) %>%
+    select(facility_name, f03, question, label, issue, comments) %>%
     flextable() %>%
-    width(j = "f03", width = 1) %>% 
-    width(j = "question", width = 1) %>% 
-    width(j = "label", width = 2) %>% 
-    width(j = "issue", width = 3) %>% 
-    width(j = "response", width = 2) %>% 
-    font(fontname = "Times New Roman", part = "all") %>%
-    fontsize(size = 9, part = "all") %>%
-    padding(padding = 2, part = "all") %>%
+    set_table_properties(layout = "fixed", width = 1) %>%
+    width(j = "facility_name", width = 1.3) %>%
+    width(j = "f03",           width = 1.1) %>%
+    width(j = "question",      width = 1.5) %>%
+    width(j = "label",         width = 1.4) %>%
+    width(j = "issue",         width = 2.7) %>%
+    width(j = "comments",      width = 2.0) %>%
+    fit_to_width(max_width = 10) %>%
+    width(j = "comments", width = 1.3) %>% 
+    fontsize(size = 7, part = "all") %>%
+    bold(part = "header") %>%
+    bg(bg = "#4472C4", part = "header") %>%
+    color(color = "white", part = "header") %>%
+    valign(valign = "top", part = "body") %>%
+    padding(padding = 3, part = "all") %>%
     border_inner_h(border = officer::fp_border(color = "black", width = 1), part = "body") %>%
     border_inner_v(border = officer::fp_border(color = "black", width = 1), part = "all")
+    
+    
+    #font(fontname = "Times New Roman", part = "all") %>%
+    #fontsize(size = 9, part = "all") %>%
+    #padding(padding = 2, part = "all") %>%
+    #border_inner_h(border = officer::fp_border(color = "black", width = 1), part = "body") %>%
+    #border_inner_v(border = officer::fp_border(color = "black", width = 1), part = "all")
 }
 
 fn_make_flextable(tool_results)
