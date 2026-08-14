@@ -233,6 +233,9 @@ cat("**Facilities with entries:**", paste(facility_names_in_pull, collapse = "; 
 
 
 ```{r spot-checks, eval = FALSE}
+
+# Spot checks section for responding to questions in RMD report word doc
+
 dat %>%
   filter(f03 =="09-IWGH-C") %>%
   select(starttime, endtime, q13a, `q13a6...31`,q13b, `q13a6...36`,  q247, q248, starts_with("m242a1"))
@@ -240,6 +243,35 @@ dat %>%
 dat %>%
   filter(f03 == "46-FICH-C") %>%
   select(`gps-Latitude`, `gps-Longitude`)
+
+# get_death1 is NA
+df_facility <- dat %>%
+  filter(f03 == "26-MSMH-C")  %>%
+  select(KEY)
+dat %>%
+  filter(f03 == "26-MSMH-C") %>%
+  select(q25a)
+dat_q27 %>%
+  inner_join(df_facility, by = c("PARENT_KEY" = "KEY")) %>%
+  select(get_death1, starts_with("q27"))
+
+# get_death1 is NA
+df_facility <- dat %>%
+  filter(f03 == "03-SBMH-C")  %>%
+  select(KEY)
+dat %>%
+  filter(f03 == "03-SBMH-C") %>%
+  select(q25a)
+dat_q27 %>%
+  inner_join(df_facility, by = c("PARENT_KEY" = "KEY")) %>%
+  select(get_death1, starts_with("q27"))
+
+dat %>%
+  filter(f03 == "09-IWGH-C") %>%
+  select(f03, starts_with("m242a1")) %>% as.data.frame()
+
+
+
 
 ```
 
@@ -318,8 +350,7 @@ cond_q12a <- !is.na(dat$q12) & dat$q12 == "2" & (is.na(dat$q12a) | trimws(dat$q1
 
 # Helper: flags an attempted "missing" code that isn't the exact designated
 # code (9999) for the q13*1 year-captured fields -- e.g. an extra/dropped digit
-# (99999, 999), or the wrong code entirely (8888, the code used elsewhere
-# in this form for the m242 monthly count fields).
+# (99999, 999), or the wrong code entirely (8888, the code used elsewhere in this form for the m242 monthly count fields).
 is_improper_missing_year <- function(x) {
   xc <- trimws(as.character(x))
   !is.na(x) & xc != "" & (
@@ -799,7 +830,7 @@ is_high_val <- function(x, max_plausible = 50) {
 }
 
 is_improper_missing_val <- function(x) {
-  # Catches an attempted "missing" codethat isn't the exact designated
+  # Catches an attempted "missing" code that isn't the exact designated
   # code (8888) for this field -- e.g. an extra/dropped digit (88888, 888),
   # or the wrong code entirely (9999, which is the code used elsewhere
   # in this form for the q13*1 "year" fields). These pass the is_invalid_val()
@@ -918,6 +949,12 @@ month_check_defs <- pmap_dfr(month_families, function(prefix, gate_var, label_st
              "has a month value that appears to be an attempted missing-value entry (e.g., 88888, or 9999) rather than the designated missing code of 8888 -- an improper missing value was used")
   )
 })
+
+# FLAG, 8/14: removing the some_improper_missing check
+# in DQ report on 8/11 John said he would handle these in the stata code
+# astha also said we can remove in the analysis
+month_check_defs <- month_check_defs %>%
+  filter(!str_detect(cond_name, "somemonths_impropermissing"))
 
 # q243-245 ----------------------------------------------------------------
 
@@ -1466,7 +1503,11 @@ readr::write_csv(
   today_snapshot_path
 )
 
-tool_results <- tool_results_new
+# !!!!!! generate Word doc report with all queries or just new?
+# all
+tool_results <- tool_results_full
+# just new
+#tool_results <- tool_results_new
 
 # No-issues placeholder ----------------------------------------------------
 
