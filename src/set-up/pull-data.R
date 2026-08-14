@@ -12,9 +12,16 @@ library(jsonlite)
 library(digest)   # for sha256
 ################################################################################
 
+# For scheduled task ------------------------------------------------------
+
+# In order to run scheduled task, need to hard code path (don't rely on relative path)
+mypath <- "C:/Users/HEilerts/Institute of International Programs Dropbox/Hallie Eilerts-Spinelli/MNHeval-HealthFacility/facility-mnh-nigeria/data/"
+
+# Explicitly load Renviron variables
+readRenviron("C:/Users/HEilerts/Institute of International Programs Dropbox/Hallie Eilerts-Spinelli/MNHeval-HealthFacility/facility-mnh-nigeria/.Renviron")
+
 # Configure ---------------------------------------------------------------
 
-mypath <- "./data/"
 if (!dir.exists(mypath)) dir.create(mypath, recursive = TRUE)
 log_path <- file.path(mypath, "pull_log.jsonl")
 
@@ -158,15 +165,21 @@ names(results) <- tools$tool
 
 # View data pull log ------------------------------------------------------
 
-df_pull_log <- stream_in(file(log_path))
-
-# View errors
-df_pull_log %>%
-  filter(status == "error")   
-
-# View today's pulls
-df_pull_log %>%
-  filter(pulled_at >= pull_date)
+# # safe load
+# if (file.exists(log_path) && file.info(log_path)$size > 0) {
+#   df_pull_log <- stream_in(file(log_path))
+# } else {
+#   message("No pull log yet — skipping log review.")
+# }
+# # df_pull_log <- stream_in(file(log_path))
+# 
+# # View errors
+# df_pull_log %>%
+#   filter(status == "error")   
+# 
+# # View today's pulls
+# df_pull_log %>%
+#   filter(pulled_at >= pull_date)
 
 
 # Ad-hoc edit to pull log -------------------------------------------------

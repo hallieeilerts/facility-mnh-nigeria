@@ -24,8 +24,11 @@ library(purrr)
 ```
 
 ```{r load-data, results='asis'}
+## FIRST SYNC ONEDRIVE FOLDER
+## !!!ADD LOCAL PATH INFORMATION HERE FOR TOOL'S ZIP FILE AND JSON ON ONEDRIVE
 mypath <- here::here("data")
 
+## !!!ADJUST FOR WHICHEVER TOOL
 # Find the most recent local ToolC data file (csv or csv.zip)
 tool_c_files <- list.files(
   mypath, 
@@ -68,6 +71,7 @@ if (grepl("\\.zip$", latest_file)) {
   )
 }
 
+## !!!!ADJUST FOR WHICHEVER TOOL
 dat <- tables$`hfe-tool-c-final`
 dat_q27 <- tables$`hfe-tool-c-final-dth_review_repeat`
 ```
